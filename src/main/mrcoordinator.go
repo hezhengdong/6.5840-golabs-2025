@@ -20,10 +20,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 创建协调器实例
 	m := mr.MakeCoordinator(os.Args[1:], 10)
+
+	// 主循环：持续检查 MapReduce 作业是否完成
 	for m.Done() == false {
+		// 每秒检查一次作业状态
 		time.Sleep(time.Second)
 	}
 
+	// 最后 worker 需要根据 coordinator 的信息判断 mp 是否完成
 	time.Sleep(time.Second)
 }

@@ -9,23 +9,25 @@ package main
 //
 
 import "6.5840/mr"
-import crand "crypto/rand"
-import "math/big"
+import crand "crypto/rand" // 加密安全的随机数生成包
+import "math/big" // 大数运算包
 import "strings"
 import "os"
 import "sort"
-import "strconv"
+import "strconv" // 字符串转换包
 import "time"
 
 func maybeCrash() {
 	max := big.NewInt(1000)
+	// 生成一个 0-999 的加密安全随机数
 	rr, _ := crand.Int(crand.Reader, max)
-	if rr.Int64() < 330 {
+	if rr.Int64() < 330 { // 33% 概率崩溃
 		// crash!
 		os.Exit(1)
-	} else if rr.Int64() < 660 {
+	} else if rr.Int64() < 660 { // 33% 概率延迟
 		// delay for a while.
 		maxms := big.NewInt(10 * 1000)
+		// 0-10000随机数
 		ms, _ := crand.Int(crand.Reader, maxms)
 		time.Sleep(time.Duration(ms.Int64()) * time.Millisecond)
 	}

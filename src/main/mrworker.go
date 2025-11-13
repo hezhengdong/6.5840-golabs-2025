@@ -22,8 +22,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 从插件文件中加载 Map 和 Reduce 函数
 	mapf, reducef := loadPlugin(os.Args[1])
 
+	// 启动 Worker，传入加载的 Map 和 Reduce 函数
 	mr.Worker(mapf, reducef)
 }
 
