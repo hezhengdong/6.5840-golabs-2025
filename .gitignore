@@ -1,2 +1,11 @@
 pkg/
 *-handin.tar.gz
+
+# 排除 .idea 目录及其所有内容
+.idea/
+
+# 排除 .vscode 目录及其所有内容
+.vscode/
+
+# 排除 macOS 自动生成的 .DS_Store 文件（包括所有子目录中的）
+**/.DS_Store
