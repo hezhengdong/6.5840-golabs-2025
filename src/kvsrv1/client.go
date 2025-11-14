@@ -45,11 +45,19 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 	args := rpc.GetArgs{Key: key}
 	reply := rpc.GetReply{}
 
+	// 如果失败，循环重试，直到发送成功。根据 Lab2 task3 讲义内容，不需要考虑一直失败的情况。Put 同理
 	ok := ck.clnt.Call(ck.server, "KVServer.Get", &args, &reply)
 
-	if !ok {
-		log.Printf("Get RPC 调用失败. key: %v\n", key)
-		return "", 0, rpc.ErrNoKey
+	var count int
+
+	for !ok {
+		count++
+		log.Printf("Get RPC 调用失败, 尝试重试第 %v 次. key: %v\n", count, key)
+		ok := ck.clnt.Call(ck.server, "KVServer.Get", &args, &reply)
+		if ok {
+			log.Printf("Get RPC 重试 %v 次后成功", count)
+			return reply.Value, reply.Version, reply.Err
+		}
 	}
 
 	return reply.Value, reply.Version, reply.Err
@@ -89,9 +97,16 @@ func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
 
 	ok := ck.clnt.Call(ck.server, "KVServer.Put", &args, &reply)
 
-	if !ok {
-		log.Printf("Put RPC 调用失败. key: %v, value: %v, version: %v", key, value, version)
-		return rpc.ErrNoKey
+	var count int
+
+	for !ok {
+		count++
+		log.Printf("Put RPC 调用失败, 尝试重试第 %v 次. key: %v, value: %v, version: %v", count, key, value, version)
+		ok := ck.clnt.Call(ck.server, "KVServer.Put", &args, &reply)
+		if ok {
+			log.Printf("Put RPC 重试 %v 次后成功", count)
+			return rpc.ErrMaybe // Lab2 task3 关键: 为什么是 ErrMaybe?
+		}
 	}
 
 	return reply.Err
