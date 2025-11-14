@@ -2,6 +2,7 @@ package kvsrv
 
 import (
 	"log"
+	"time"
 
 	"6.5840/kvsrv1/rpc"
 	"6.5840/kvtest1"
@@ -52,10 +53,11 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 
 	for !ok {
 		count++
+		time.Sleep(100 * time.Millisecond)
 		log.Printf("Get RPC 调用失败, 尝试重试第 %v 次. key: %v\n", count, key)
 		ok := ck.clnt.Call(ck.server, "KVServer.Get", &args, &reply)
 		if ok {
-			log.Printf("Get RPC 重试 %v 次后成功", count)
+			log.Printf("Get RPC 重试 %v 次后调用成功, reply.Err: %v", count, reply.Err)
 			return reply.Value, reply.Version, reply.Err
 		}
 	}
@@ -101,11 +103,16 @@ func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
 
 	for !ok {
 		count++
+		time.Sleep(100 * time.Millisecond)
 		log.Printf("Put RPC 调用失败, 尝试重试第 %v 次. key: %v, value: %v, version: %v", count, key, value, version)
 		ok := ck.clnt.Call(ck.server, "KVServer.Put", &args, &reply)
 		if ok {
-			log.Printf("Put RPC 重试 %v 次后成功", count)
-			return rpc.ErrMaybe // Lab2 task3 关键: 为什么是 ErrMaybe?
+			if reply.Err == rpc.ErrVersion {
+				log.Printf("Put RPC 重试 %v 次后调用成功, reply.Err: %v", count, rpc.ErrMaybe)
+				return rpc.ErrMaybe // Lab2 task3 关键: 重试后 Put RPC 返回的 ErrVersion 需要被视为 ErrMaybe
+			}
+			log.Printf("Put RPC 重试 %v 次后调用成功, reply.Err: %v", count, reply.Err)
+			return reply.Err
 		}
 	}
 
