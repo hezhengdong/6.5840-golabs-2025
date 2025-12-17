@@ -10,6 +10,7 @@ package raft
 
 import (
 	//	"bytes"
+	"bytes"
 	"math/rand"
 	"sort"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	//	"6.5840/labgob"
+	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raftapi"
 	"6.5840/tester1"
@@ -101,12 +103,22 @@ func (rf *Raft) GetState() (int, bool) {
 func (rf *Raft) persist() {
 	// Your code here (3C).
 	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
+	// w := new(bytes.Buffer) // 创建空的字节缓冲区，用于写入数据，存储编码后的数据
+	// e := labgob.NewEncoder(w) // 基于缓冲区 w 创建一个 labgob 编码器
+	// e.Encode(rf.xxx) // 编码数据结构
 	// e.Encode(rf.yyy)
-	// raftstate := w.Bytes()
-	// rf.persister.Save(raftstate, nil)
+	// raftstate := w.Bytes() // 获取缓冲区内的所有字节，即为编码后的 raft 持久话状态
+	// rf.persister.Save(raftstate, nil) // 保存字节
+
+	// 这里写入数据，把持久化的数据转换为字节，存储进 Persister 对象中
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.logs)
+	raftstate := w.Bytes()
+	rf.persister.Save(raftstate, nil)
+	Debugf(dPersist, "S%d 持久化{currentTerm=%d,votedFor=%d,len(logs)=%d}", rf.me, rf.currentTerm, rf.votedFor, len(rf.logs))
 }
 
 
@@ -114,20 +126,40 @@ func (rf *Raft) persist() {
 //
 // restore previously persisted state.
 func (rf *Raft) readPersist(data []byte) {
-	if data == nil || len(data) < 1 { // bootstrap without any state?
+	if len(data) < 1 { // bootstrap without any state?
 		return
 	}
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var currentTerm int
+	var votedFor    int
+	var logs        []Log
+	if d.Decode(&currentTerm) != nil ||
+	   d.Decode(&votedFor) != nil ||
+	   d.Decode(&logs) != nil {
+		panic("解码失败")
+	} else {
+		rf.currentTerm = currentTerm
+		rf.votedFor = votedFor
+		rf.logs = logs
+	}
+	// 重置时间，防止不必要的选举
+	rf.lastHeartbeat = time.Now()
+
+	Debugf(dPersist, "S%d 读取持久状态 {term=%d,votedFor=%d,len(logs)=%d}", rf.me, currentTerm, votedFor, len(logs))
+
 	// Your code here (3C).
 	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
+	// r := bytes.NewBuffer(data) // 用已有数据创建字节缓冲区
+	// d := labgob.NewDecoder(r) // 基于缓冲区的 labgob 编码器
+	// var xxx // 接收解码数据的变量
 	// var yyy
 	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
+	//    d.Decode(&yyy) != nil { // 解码数据
 	//   error...
 	// } else {
-	//   rf.xxx = xxx
+	//   rf.xxx = xxx // 解码成功，赋值给 Raft 字段
 	//   rf.yyy = yyy
 	// }
 }
@@ -189,7 +221,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	Debugf(dVote, "S%d <- S%d: 收到投票请求", rf.me, args.CandidateId)
+	Debugf(dVote, "S%d <- S%d: 收到投票请求{%v}", rf.me, args.CandidateId, args)
 
 	// 1. 对比投票者与候选人的任期
 	// 如果投票者任期更大，拒绝投票
@@ -211,11 +243,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		}
 		rf.currentTerm = args.CandidateTerm
 		rf.votedFor = -1
+		rf.persist()
 	}
 
 	// 2. 检查投票者是否已经投过票
 	if rf.votedFor != -1 && rf.votedFor != args.CandidateId {
-		Debugf(dVote, "S%d 判定存在“已投票问题”, voteFor = %d", rf.me, rf.votedFor)
+		Debugf(dVote, "S%d 判定存在“已投票问题”, votedFor = %d", rf.me, rf.votedFor)
 		reply.Term = args.CandidateTerm
 		reply.VoteGranted = false
 		return
@@ -223,8 +256,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// 3. 对比二者日志，哪个更加完善（5.4.1 选举限制）
 	// 如果投票者的日志比候选人更加完善，则拒绝投票
-	lastLogTerm := rf.logs[rf.commitIndex].Term
-	lastLogIndex := rf.commitIndex
+	lastLogIndex := len(rf.logs) - 1
+	lastLogTerm := rf.logs[lastLogIndex].Term
+	Debugf(dVote, "S%d 本机: lastLogTerm = %d, lastLogIndex = %d", rf.me, lastLogTerm, lastLogIndex)
+	Debugf(dVote, "S%d 候选人: lastLogTerm = %d, lastLogIndex = %d", rf.me, args.CandidateTerm, args.LastLogIndex)
 	if lastLogTerm > args.LastLogTerm || (lastLogTerm == args.LastLogTerm && lastLogIndex > args.LastLogIndex) {
 		Debugf(dVote, "S%d 判定存在“候选人条件不足问题”", rf.me)
 		Debugf(dVote, "S%d 本机: lastLogTerm = %d, lastLogIndex = %d", rf.me, lastLogTerm, lastLogIndex)
@@ -238,6 +273,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	Debugf(dVote, "S%d -> S%d: 为候选人投票, Term=%d", rf.me, args.CandidateId, rf.currentTerm)
 	rf.lastHeartbeat = time.Now()
 	rf.votedFor = args.CandidateId
+	rf.persist()
 	reply.Term = args.CandidateTerm
 	reply.VoteGranted = true
 }
@@ -282,13 +318,15 @@ type AppendEntriesArgs struct {
 type AppendEntriesReply struct {
 	Term    int
 	Success bool
+	ConflictIndex int
+	ConflictTerm  int
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if len(args.Entries) == 0 {
+	if len(args.Entries) != 0 {
 		Debugf(dLog2, "S%d <- S%d 收到追加日志请求", rf.me, args.LeaderId)
 	} else {
 		Debugf(dLog, "S%d <- S%d: 收到心跳请求", rf.me, args.LeaderId)
@@ -306,6 +344,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
+		rf.persist()
 	} else if rf.currentTerm > args.Term {
 		// 如果跟随者的任期大于领导者，跟随者返回自身任期与 false，领导者收到响应后，会变为跟随者
 		Debugf(dLog, "S%d 判定 S%d 存在“过期领导者问题”", rf.me, args.LeaderId)
@@ -321,9 +360,22 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	rf.lastHeartbeat = time.Now()
 
-	// 2. 一致性检查，检查失败，返回 false。领导者收到 false 后，nextIndex-- 重试
-	if (len(rf.logs) - 1) < args.PrevLogIndex || rf.logs[args.PrevLogIndex].Term != args.PrevLogTrem {
-		Debugf(dLog, "S%d 判定存在“一致性问题”", rf.me)
+	// 2. 一致性检查，检查失败，返回 false。领导者收到 false 后，nextIndex 变小重试
+	reply.ConflictIndex = -1 // 该变量用于判断是否存在一致性问题，跟随者与领导者都根据此变量判断
+	if args.PrevLogIndex > len(rf.logs) - 1 {
+		reply.ConflictIndex = len(rf.logs)
+		reply.ConflictTerm = -1
+	} else if rf.logs[args.PrevLogIndex].Term != args.PrevLogTrem {
+		reply.ConflictTerm = rf.logs[args.PrevLogIndex].Term
+		for i, log := range rf.logs {
+			if log.Term == reply.ConflictTerm {
+				reply.ConflictIndex = i
+				break
+			}
+		}
+	}
+	if reply.ConflictIndex != -1 {
+		Debugf(dLog, "S%d 判定存在“一致性问题” {reply.ConflictIndex=%d, reply.ConflictTerm=%d}", rf.me, reply.ConflictIndex, reply.ConflictTerm)
 		reply.Term = args.Term
 		reply.Success = false
 		return
@@ -342,6 +394,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				//      根据条目公式，newEntryIndex 可能的最大值为 len(rf.logs)，符合语法。
 				rf.logs = rf.logs[:newEntryIndex]
 				rf.logs = append(rf.logs, args.Entries[i:]...)
+				rf.persist()
 				Debugf(dLog2, "S%d 追加日志成功", rf.me)
 				break
 			} else {
@@ -391,6 +444,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Command: command,
 	}
 	rf.logs = append(rf.logs, log)
+	rf.persist()
 	Debugf(dLog2, "S%d 接收并追加 log{Term=%v,Command=%v}", rf.me, log.Term, log.Command)
 
 	// 更新相关状态
@@ -431,6 +485,7 @@ func (rf *Raft) startElection() {
 	rf.state = Candidate // 修改状态
 	rf.currentTerm++     // 任期+1
 	rf.votedFor = rf.me  // 重置选票, 为自己投票
+	rf.persist()
 	Debugf(dVote, "S%d %v -> Candidate, Term=%d, 为自己投票", rf.me, rf.state, rf.currentTerm)
 
 	// 1. 在持有锁时, 获取任期副本
@@ -445,8 +500,8 @@ func (rf *Raft) startElection() {
 		args := RequestVoteArgs{
 			CandidateTerm: currentTerm,
 			CandidateId: rf.me,
-			LastLogIndex: rf.commitIndex,
-			LastLogTerm: rf.logs[rf.commitIndex].Term,
+			LastLogIndex: len(rf.logs) - 1,
+			LastLogTerm: rf.logs[len(rf.logs) - 1].Term,
 		}
 		reply := RequestVoteReply{}
 
@@ -483,6 +538,7 @@ func (rf *Raft) startElection() {
 					rf.state = Follower
 					rf.currentTerm = reply.Term
 					rf.votedFor = -1
+					rf.persist()
 				}
 				results <- false
 			} else {
@@ -586,12 +642,27 @@ func (rf *Raft) heartbeat() {
 				rf.state = Follower
 				rf.currentTerm = reply.Term
 				rf.votedFor = -1
+				rf.persist()
 				return
 			}
 			// 如果依旧失败, 说明存在一致性问题
-			if !reply.Success {
+			if !reply.Success && reply.ConflictIndex != -1 {
 				Debugf(dLog, "S%d 判定存在一致性问题", rf.me)
-				rf.nextIndex[server]--
+				if reply.ConflictTerm == -1 {
+					rf.nextIndex[server] = reply.ConflictIndex
+				} else {
+					var existTerm bool = false
+					for i := len(rf.logs) - 1; i >= 0; i-- {
+						if rf.logs[i].Term == reply.ConflictTerm {
+							rf.nextIndex[server] = i + 1
+							existTerm = true
+							break
+						}
+					}
+					if !existTerm {
+						rf.nextIndex[server] = reply.ConflictIndex
+					}
+				}
 			}
 		}(server)
 	}
@@ -626,7 +697,7 @@ func (rf *Raft) replicator(server int) {
 	for !rf.killed() {
 		rf.mu.Lock()
 		for (rf.state != Leader) {
-			Debugf(dLog2, "S%d 不是 Leader, 挂起 replicator", rf.me)
+			Debugf(dLog2, "S%d 不是 Leader, 挂起 S%d replicator", rf.me, server)
 			rf.cond.Wait()
 		}
 
@@ -673,13 +744,28 @@ func (rf *Raft) replicator(server int) {
 			rf.state = Follower
 			rf.currentTerm = reply.Term
 			rf.votedFor = -1
+			rf.persist()
 			rf.mu.Unlock()
 			continue
 		}
 		// 如果因不一致问题失败，nextIndex--
-		if !reply.Success {
-			Debugf(dLog2, "S%d 判定存在一致性问题", rf.me)
-			rf.nextIndex[server]--
+		if !reply.Success && reply.ConflictIndex != -1 {
+			Debugf(dLog, "S%d 判定存在一致性问题", rf.me)
+			if reply.ConflictTerm == -1 {
+				rf.nextIndex[server] = reply.ConflictIndex
+			} else {
+				var existTerm bool = false
+				for i := len(rf.logs) - 1; i >= 0; i-- {
+					if rf.logs[i].Term == reply.ConflictTerm {
+						rf.nextIndex[server] = i + 1
+						existTerm = true
+						break
+					}
+				}
+				if !existTerm {
+					rf.nextIndex[server] = reply.ConflictIndex
+				}
+			}
 			rf.mu.Unlock()
 			continue
 		}
@@ -693,7 +779,8 @@ func (rf *Raft) replicator(server int) {
         copy(matchIndexCopy, rf.matchIndex)
 		sort.Ints(matchIndexCopy) // 升序排序
 		newCommitIndex := matchIndexCopy[len(matchIndexCopy) / 2] // 以降序过半数为准, 即为升序恰好没过半数的索引, 例如 1/3, 2/2, 3/5
-		if newCommitIndex > rf.commitIndex {
+		// 只允许提交当前任期的条目
+		if newCommitIndex > rf.commitIndex && rf.logs[newCommitIndex].Term == rf.currentTerm {
 			Debugf(dLog2, "S%d newCommitIndex=%d, rf.commitIndex=%d, 更新 rf.commitIndex", rf.me, newCommitIndex, rf.commitIndex)
 			rf.commitIndex = newCommitIndex
 		} else {
@@ -726,7 +813,7 @@ func (rf *Raft) applier(applyCh chan raftapi.ApplyMsg) {
 				Command: rf.logs[rf.lastApplied].Command,
 				CommandIndex: rf.lastApplied,
 			}
-			Debugf(dLog2, "S%d 成功应用条目 %d", rf.me, rf.lastApplied)
+			Debugf(dCommit, "S%d 成功应用条目 %d", rf.me, rf.lastApplied)
 			rf.mu.Unlock()
 			applyCh <- msg
 			continue
