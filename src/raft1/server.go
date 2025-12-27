@@ -46,7 +46,7 @@ func newRfsrv(ts *Test, srv int, ends []*labrpc.ClientEnd, persister *tester.Per
 	}
 	if snapshot {
 		snapshot := persister.ReadSnapshot()
-		if snapshot != nil && len(snapshot) > 0 {
+		if len(snapshot) > 0 {
 			// mimic KV server and process snapshot now.
 			// ideally Raft should send it up on applyCh...
 			err := s.ingestSnap(snapshot, -1)
@@ -152,11 +152,13 @@ func (rs *rfsrv) applierSnap(applyCh chan raftapi.ApplyMsg) {
 				}
 				e.Encode(xlog)
 				start := tester.GetAnnotateTimestamp()
+				if rs.raft != nil {
 				rs.raft.Snapshot(m.CommandIndex, w.Bytes())
 				details := fmt.Sprintf(
 					"snapshot created after applying the command at index %v",
 					m.CommandIndex)
 				tester.AnnotateInfoInterval(start, "snapshot created", details)
+				}
 			}
 		} else {
 			// Ignore other types of ApplyMsg.
