@@ -138,6 +138,10 @@ func (rf *Raft) readPersist(data []byte) {
         rf.lastApplied = lastIncludedIndex
 		// 还有读取持久化存储的快照
 		rf.snapshot = rf.persister.ReadSnapshot()
+		// 如果崩溃恢复后有快照，那么上层 Server 状态机中的数据也丢了，触发 applyCh 发送快照，填充数据到状态机
+		if rf.lastIncludedIndex > 0 {
+            rf.snapshotPending = true
+        }
 	}
 	// 重置时间，防止不必要的选举
 	rf.lastHeartbeat = time.Now()
