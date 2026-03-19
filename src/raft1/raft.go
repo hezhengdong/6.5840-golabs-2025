@@ -225,6 +225,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
+	<-done // 这里的代码是为了避免 applyCh 关闭后 applier 依旧向 applyCh 发送信息从而报错
+	close(rf.applyCh)
 }
 
 func (rf *Raft) killed() bool {
@@ -293,8 +295,10 @@ func (rf *Raft) replicator(server int) {
 	}
 }
 
+var done = make(chan bool)
 
 func (rf *Raft) applier() {
+	defer func() { done <- true }()
 	for !rf.killed() {
 		rf.mu.Lock()
 		if rf.snapshotPending {
