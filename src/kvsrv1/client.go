@@ -54,10 +54,10 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 	for !ok {
 		count++
 		time.Sleep(100 * time.Millisecond)
-		log.Printf("Get RPC 调用失败, 尝试重试第 %v 次. key: %v\n", count, key)
+		log.Printf("Lab2 Get RPC 调用失败, 尝试重试第 %v 次. key: %v\n", count, key)
 		ok := ck.clnt.Call(ck.server, "KVServer.Get", &args, &reply)
 		if ok {
-			log.Printf("Get RPC 重试 %v 次后调用成功, reply.Err: %v", count, reply.Err)
+			log.Printf("Lab2 Get RPC 重试 %v 次后调用成功, reply.Err: %v", count, reply.Err)
 			return reply.Value, reply.Version, reply.Err
 		}
 	}
@@ -104,14 +104,14 @@ func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
 	for !ok {
 		count++
 		time.Sleep(100 * time.Millisecond)
-		log.Printf("Put RPC 调用失败, 尝试重试第 %v 次. key: %v, value: %v, version: %v", count, key, value, version)
+		log.Printf("Lab2 Put RPC 调用失败, 尝试重试第 %v 次. key: %v, value: %v, version: %v", count, key, value, version)
 		ok := ck.clnt.Call(ck.server, "KVServer.Put", &args, &reply)
 		if ok {
 			if reply.Err == rpc.ErrVersion {
-				log.Printf("Put RPC 重试 %v 次后调用成功, reply.Err: %v", count, rpc.ErrMaybe)
+				log.Printf("Lab2 Put RPC 重试 %v 次后调用成功, reply.Err: %v", count, rpc.ErrMaybe)
 				return rpc.ErrMaybe // Lab2 task3 关键: 重试后 Put RPC 返回的 ErrVersion 需要被视为 ErrMaybe
 			}
-			log.Printf("Put RPC 重试 %v 次后调用成功, reply.Err: %v", count, reply.Err)
+			log.Printf("Lab2 Put RPC 重试 %v 次后调用成功, reply.Err: %v", count, reply.Err)
 			return reply.Err
 		}
 	}
