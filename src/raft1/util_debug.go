@@ -13,16 +13,21 @@ import (
 type logTopic string
 const (
     dClient  logTopic = "CLNT" // 客户端操作
-    dCommit  logTopic = "CMIT"
+    dCommit  logTopic = "CMIT" // 提交操作
     dError   logTopic = "ERRO"
     dInfo    logTopic = "INFO" // 一般信息
     dLeader  logTopic = "LEAD" // 领导者状态变更
-    dLog     logTopic = "LOG1" // 日志发送操作
-    dLog2    logTopic = "LOG2" // 日志保存/应用操作
+    dLog     logTopic = "LOG1" // 日志
+    dLog2    logTopic = "LOG2" // 心跳
     dPersist logTopic = "PERS" // 持久化操作
+    dSnap    logTopic = "SNAP" // 快照操作
     dTimer   logTopic = "TIMR" // 定时器操作
     dVote    logTopic = "VOTE" // 选举投票操作
     dWarn    logTopic = "WARN"
+    DClient  logTopic = "CLNT"
+    DConf    logTopic = "CONF" // lab5 配置操作
+    DShard   logTopic = "SHRD" // lab5 分片迁移操作
+    DServer  logTopic = "SVER"
 )
 
 // 获取日志级别
